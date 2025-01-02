@@ -5,6 +5,7 @@
 package route
 
 import (
+	gocontext "context"
 	"fmt"
 	"net/http"
 
@@ -14,7 +15,7 @@ import (
 
 	"gogs.io/gogs/internal/conf"
 	"gogs.io/gogs/internal/context"
-	"gogs.io/gogs/internal/db"
+	"gogs.io/gogs/internal/database"
 	"gogs.io/gogs/internal/route/user"
 )
 
@@ -38,7 +39,7 @@ func Home(c *context.Context) {
 
 	// Check auto-login.
 	uname := c.GetCookie(conf.Security.CookieUsername)
-	if len(uname) != 0 {
+	if uname != "" {
 		c.Redirect(conf.Server.Subpath + "/user/login")
 		return
 	}
@@ -58,7 +59,7 @@ func ExploreRepos(c *context.Context) {
 	}
 
 	keyword := c.Query("q")
-	repos, count, err := db.SearchRepositoryByName(&db.SearchRepoOptions{
+	repos, count, err := database.SearchRepositoryByName(&database.SearchRepoOptions{
 		Keyword:  keyword,
 		UserID:   c.UserID(),
 		OrderBy:  "updated_unix DESC",
@@ -73,7 +74,7 @@ func ExploreRepos(c *context.Context) {
 	c.Data["Total"] = count
 	c.Data["Page"] = paginater.New(int(count), conf.UI.ExplorePagingNum, page, 5)
 
-	if err = db.RepositoryList(repos).LoadAttributes(); err != nil {
+	if err = database.RepositoryList(repos).LoadAttributes(); err != nil {
 		c.Error(err, "load attributes")
 		return
 	}
@@ -83,9 +84,9 @@ func ExploreRepos(c *context.Context) {
 }
 
 type UserSearchOptions struct {
-	Type     db.UserType
-	Counter  func() int64
-	Ranger   func(int, int) ([]*db.User, error)
+	Type     database.UserType
+	Counter  func(ctx gocontext.Context) int64
+	Ranger   func(ctx gocontext.Context, page, pageSize int) ([]*database.User, error)
 	PageSize int
 	OrderBy  string
 	TplName  string
@@ -98,29 +99,27 @@ func RenderUserSearch(c *context.Context, opts *UserSearchOptions) {
 	}
 
 	var (
-		users []*db.User
+		users []*database.User
 		count int64
 		err   error
 	)
 
 	keyword := c.Query("q")
-	if len(keyword) == 0 {
-		users, err = opts.Ranger(page, opts.PageSize)
+	if keyword == "" {
+		users, err = opts.Ranger(c.Req.Context(), page, opts.PageSize)
 		if err != nil {
 			c.Error(err, "ranger")
 			return
 		}
-		count = opts.Counter()
+		count = opts.Counter(c.Req.Context())
 	} else {
-		users, count, err = db.SearchUserByName(&db.SearchUserOptions{
-			Keyword:  keyword,
-			Type:     opts.Type,
-			OrderBy:  opts.OrderBy,
-			Page:     page,
-			PageSize: opts.PageSize,
-		})
+		search := database.Handle.Users().SearchByName
+		if opts.Type == database.UserTypeOrganization {
+			search = database.Handle.Organizations().SearchByName
+		}
+		users, count, err = search(c.Req.Context(), keyword, page, opts.PageSize, opts.OrderBy)
 		if err != nil {
-			c.Error(err, "search user by name")
+			c.Error(err, "search by name")
 			return
 		}
 	}
@@ -138,9 +137,9 @@ func ExploreUsers(c *context.Context) {
 	c.Data["PageIsExploreUsers"] = true
 
 	RenderUserSearch(c, &UserSearchOptions{
-		Type:     db.UserIndividual,
-		Counter:  db.CountUsers,
-		Ranger:   db.ListUsers,
+		Type:     database.UserTypeIndividual,
+		Counter:  database.Handle.Users().Count,
+		Ranger:   database.Handle.Users().List,
 		PageSize: conf.UI.ExplorePagingNum,
 		OrderBy:  "updated_unix DESC",
 		TplName:  EXPLORE_USERS,
@@ -153,9 +152,13 @@ func ExploreOrganizations(c *context.Context) {
 	c.Data["PageIsExploreOrganizations"] = true
 
 	RenderUserSearch(c, &UserSearchOptions{
-		Type:     db.UserOrganization,
-		Counter:  db.CountOrganizations,
-		Ranger:   db.Organizations,
+		Type: database.UserTypeOrganization,
+		Counter: func(gocontext.Context) int64 {
+			return database.CountOrganizations()
+		},
+		Ranger: func(_ gocontext.Context, page, pageSize int) ([]*database.User, error) {
+			return database.Organizations(page, pageSize)
+		},
 		PageSize: conf.UI.ExplorePagingNum,
 		OrderBy:  "updated_unix DESC",
 		TplName:  EXPLORE_ORGANIZATIONS,

@@ -11,7 +11,7 @@ import (
 
 	"gogs.io/gogs/internal/conf"
 	"gogs.io/gogs/internal/context"
-	"gogs.io/gogs/internal/db"
+	"gogs.io/gogs/internal/database"
 	"gogs.io/gogs/internal/route/repo"
 	"gogs.io/gogs/internal/tool"
 )
@@ -42,7 +42,7 @@ func Profile(c *context.Context, puser *context.ParamsUser) {
 	c.PageIs("UserProfile")
 	c.Data["Owner"] = puser
 
-	orgs, err := db.GetOrgsByUserID(puser.ID, c.IsLogged && (c.User.IsAdmin || c.User.ID == puser.ID))
+	orgs, err := database.GetOrgsByUserID(puser.ID, c.IsLogged && (c.User.IsAdmin || c.User.ID == puser.ID))
 	if err != nil {
 		c.Error(err, "get organizations by user ID")
 		return
@@ -54,7 +54,7 @@ func Profile(c *context.Context, puser *context.ParamsUser) {
 	c.Data["TabName"] = tab
 	switch tab {
 	case "activity":
-		retrieveFeeds(c, puser.User, -1, true)
+		retrieveFeeds(c, puser.User, c.UserID(), true)
 		if c.Written() {
 			return
 		}
@@ -65,7 +65,7 @@ func Profile(c *context.Context, puser *context.ParamsUser) {
 		}
 
 		showPrivate := c.IsLogged && (puser.ID == c.User.ID || c.User.IsAdmin)
-		c.Data["Repos"], err = db.GetUserRepositories(&db.UserRepoOptions{
+		c.Data["Repos"], err = database.GetUserRepositories(&database.UserRepoOptions{
 			UserID:   puser.ID,
 			Private:  showPrivate,
 			Page:     page,
@@ -76,7 +76,7 @@ func Profile(c *context.Context, puser *context.ParamsUser) {
 			return
 		}
 
-		count := db.CountUserRepositories(puser.ID, showPrivate)
+		count := database.CountUserRepositories(puser.ID, showPrivate)
 		c.Data["Page"] = paginater.New(int(count), conf.UI.User.RepoPagingNum, page, 5)
 	}
 
@@ -88,7 +88,14 @@ func Followers(c *context.Context, puser *context.ParamsUser) {
 	c.PageIs("Followers")
 	c.Data["CardsTitle"] = c.Tr("user.followers")
 	c.Data["Owner"] = puser
-	repo.RenderUserCards(c, puser.NumFollowers, puser.GetFollowers, FOLLOWERS)
+	repo.RenderUserCards(
+		c,
+		puser.NumFollowers,
+		func(page int) ([]*database.User, error) {
+			return database.Handle.Users().ListFollowers(c.Req.Context(), puser.ID, page, database.ItemsPerPage)
+		},
+		FOLLOWERS,
+	)
 }
 
 func Following(c *context.Context, puser *context.ParamsUser) {
@@ -96,20 +103,26 @@ func Following(c *context.Context, puser *context.ParamsUser) {
 	c.PageIs("Following")
 	c.Data["CardsTitle"] = c.Tr("user.following")
 	c.Data["Owner"] = puser
-	repo.RenderUserCards(c, puser.NumFollowing, puser.GetFollowing, FOLLOWERS)
+	repo.RenderUserCards(
+		c,
+		puser.NumFollowing,
+		func(page int) ([]*database.User, error) {
+			return database.Handle.Users().ListFollowings(c.Req.Context(), puser.ID, page, database.ItemsPerPage)
+		},
+		FOLLOWERS,
+	)
 }
 
-func Stars(c *context.Context) {
-
+func Stars(_ *context.Context) {
 }
 
 func Action(c *context.Context, puser *context.ParamsUser) {
 	var err error
 	switch c.Params(":action") {
 	case "follow":
-		err = db.FollowUser(c.UserID(), puser.ID)
+		err = database.Handle.Users().Follow(c.Req.Context(), c.UserID(), puser.ID)
 	case "unfollow":
-		err = db.UnfollowUser(c.UserID(), puser.ID)
+		err = database.Handle.Users().Unfollow(c.Req.Context(), c.UserID(), puser.ID)
 	}
 
 	if err != nil {
@@ -119,7 +132,7 @@ func Action(c *context.Context, puser *context.ParamsUser) {
 
 	redirectTo := c.Query("redirect_to")
 	if !tool.IsSameSiteURLPath(redirectTo) {
-		redirectTo = puser.HomeLink()
+		redirectTo = puser.HomeURLPath()
 	}
 	c.Redirect(redirectTo)
 }

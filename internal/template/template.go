@@ -24,9 +24,10 @@ import (
 
 	"gogs.io/gogs/internal/conf"
 	"gogs.io/gogs/internal/cryptoutil"
-	"gogs.io/gogs/internal/db"
+	"gogs.io/gogs/internal/database"
 	"gogs.io/gogs/internal/gitutil"
 	"gogs.io/gogs/internal/markup"
+	"gogs.io/gogs/internal/strutil"
 	"gogs.io/gogs/internal/tool"
 )
 
@@ -38,7 +39,7 @@ var (
 // FuncMap returns a list of user-defined template functions.
 func FuncMap() []template.FuncMap {
 	funcMapOnce.Do(func() {
-		funcMap = []template.FuncMap{map[string]interface{}{
+		funcMap = []template.FuncMap{map[string]any{
 			"BuildCommit": func() string {
 				return conf.BuildCommit
 			},
@@ -93,7 +94,7 @@ func FuncMap() []template.FuncMap {
 				return t.Format("Jan 02, 2006")
 			},
 			"SubStr": func(str string, start, length int) string {
-				if len(str) == 0 {
+				if str == "" {
 					return ""
 				}
 				end := start + length
@@ -106,7 +107,7 @@ func FuncMap() []template.FuncMap {
 				return str[start:end]
 			},
 			"Join":                  strings.Join,
-			"EllipsisString":        tool.EllipsisString,
+			"EllipsisString":        strutil.Ellipsis,
 			"DiffFileTypeToStr":     DiffFileTypeToStr,
 			"DiffLineTypeToStr":     DiffLineTypeToStr,
 			"Sha1":                  Sha1,
@@ -146,7 +147,7 @@ func Str2HTML(raw string) template.HTML {
 
 // NewLine2br simply replaces "\n" to "<br>".
 func NewLine2br(raw string) string {
-	return strings.Replace(raw, "\n", "<br>", -1)
+	return strings.ReplaceAll(raw, "\n", "<br>")
 }
 
 func Sha1(str string) string {
@@ -186,7 +187,7 @@ func RenderCommitMessage(full bool, msg, urlPrefix string, metas map[string]stri
 		return ""
 	} else if !full {
 		return msgLines[0]
-	} else if numLines == 1 || (numLines >= 2 && len(msgLines[1]) == 0) {
+	} else if numLines == 1 || (numLines >= 2 && msgLines[1] == "") {
 		// First line is a header, standalone or followed by empty line
 		header := fmt.Sprintf("<h3>%s</h3>", msgLines[0])
 		if numLines >= 2 {
@@ -249,8 +250,8 @@ func ActionIcon(opType int) string {
 	}
 }
 
-func ActionContent2Commits(act Actioner) *db.PushCommits {
-	push := db.NewPushCommits()
+func ActionContent2Commits(act Actioner) *database.PushCommits {
+	push := database.NewPushCommits()
 	if err := jsoniter.Unmarshal([]byte(act.GetContent()), push); err != nil {
 		log.Error("Unmarshal:\n%s\nERROR: %v", act.GetContent(), err)
 	}

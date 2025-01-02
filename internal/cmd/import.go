@@ -83,9 +83,7 @@ func runImportLocale(c *cli.Context) error {
 
 		tw, err := os.Create(target)
 		if err != nil {
-			if err != nil {
-				return fmt.Errorf("Open: %v", err)
-			}
+			return fmt.Errorf("Create: %v", err)
 		}
 
 		scanner := bufio.NewScanner(sr)
@@ -95,7 +93,7 @@ func runImportLocale(c *cli.Context) error {
 			if idx > -1 && line[len(line)-1] == '"' {
 				// We still want the "=" sign
 				line = append(line[:idx+1], line[idx+2:len(line)-1]...)
-				line = bytes.Replace(line, escapedQuotes, regularQuotes, -1)
+				line = bytes.ReplaceAll(line, escapedQuotes, regularQuotes)
 			}
 			_, _ = tw.Write(line)
 			_, _ = tw.WriteString("\n")

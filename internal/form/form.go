@@ -26,7 +26,7 @@ func init() {
 		IsMatch: func(rule string) bool {
 			return rule == "AlphaDashDotSlash"
 		},
-		IsValid: func(errs binding.Errors, name string, v interface{}) (bool, binding.Errors) {
+		IsValid: func(errs binding.Errors, name string, v any) (bool, binding.Errors) {
 			if AlphaDashDotSlashPattern.MatchString(fmt.Sprintf("%v", v)) {
 				errs.Add([]string{name}, ERR_ALPHA_DASH_DOT_SLASH, "AlphaDashDotSlash")
 				return false, errs
@@ -41,7 +41,7 @@ type Form interface {
 }
 
 // Assign assign form values back to the template data.
-func Assign(form interface{}, data map[string]interface{}) {
+func Assign(form any, data map[string]any) {
 	typ := reflect.TypeOf(form)
 	val := reflect.ValueOf(form)
 
@@ -57,7 +57,7 @@ func Assign(form interface{}, data map[string]interface{}) {
 		// Allow ignored fields in the struct
 		if fieldName == "-" {
 			continue
-		} else if len(fieldName) == 0 {
+		} else if fieldName == "" {
 			fieldName = com.ToSnakeCase(field.Name)
 		}
 
@@ -90,7 +90,7 @@ func getInclude(field reflect.StructField) string {
 	return getRuleBody(field, "Include(")
 }
 
-func validate(errs binding.Errors, data map[string]interface{}, f Form, l macaron.Locale) binding.Errors {
+func validate(errs binding.Errors, data map[string]any, f Form, l macaron.Locale) binding.Errors {
 	if errs.Len() == 0 {
 		return errs
 	}
@@ -99,11 +99,8 @@ func validate(errs binding.Errors, data map[string]interface{}, f Form, l macaro
 	Assign(f, data)
 
 	typ := reflect.TypeOf(f)
-	val := reflect.ValueOf(f)
-
 	if typ.Kind() == reflect.Ptr {
 		typ = typ.Elem()
-		val = val.Elem()
 	}
 
 	for i := 0; i < typ.NumField(); i++ {
@@ -119,7 +116,7 @@ func validate(errs binding.Errors, data map[string]interface{}, f Form, l macaro
 			data["Err_"+field.Name] = true
 
 			trName := field.Tag.Get("locale")
-			if len(trName) == 0 {
+			if trName == "" {
 				trName = l.Tr("form." + field.Name)
 			} else {
 				trName = l.Tr(trName)

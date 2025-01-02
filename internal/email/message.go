@@ -77,7 +77,7 @@ func LoginAuth(username, password string) smtp.Auth {
 	return &loginAuth{username, password}
 }
 
-func (a *loginAuth) Start(server *smtp.ServerInfo) (string, []byte, error) {
+func (*loginAuth) Start(_ *smtp.ServerInfo) (string, []byte, error) {
 	return "LOGIN", []byte{}, nil
 }
 
@@ -95,10 +95,9 @@ func (a *loginAuth) Next(fromServer []byte, more bool) ([]byte, error) {
 	return nil, nil
 }
 
-type Sender struct {
-}
+type Sender struct{}
 
-func (s *Sender) Send(from string, to []string, msg io.WriterTo) error {
+func (*Sender) Send(from string, to []string, msg io.WriterTo) error {
 	opts := conf.Email
 
 	host, port, err := net.SplitHostPort(opts.Host)
@@ -139,7 +138,7 @@ func (s *Sender) Send(from string, to []string, msg io.WriterTo) error {
 
 	if !opts.DisableHELO {
 		hostname := opts.HELOHostname
-		if len(hostname) == 0 {
+		if hostname == "" {
 			hostname, err = os.Hostname()
 			if err != nil {
 				return err
@@ -151,7 +150,7 @@ func (s *Sender) Send(from string, to []string, msg io.WriterTo) error {
 		}
 	}
 
-	// If not using SMTPS, alway use STARTTLS if available
+	// If not using SMTPS, always use STARTTLS if available
 	hasStartTLS, _ := client.Extension("STARTTLS")
 	if !isSecureConn && hasStartTLS {
 		if err = client.StartTLS(tlsconfig); err != nil {
@@ -233,6 +232,10 @@ func NewContext() {
 // It returns without confirmation (mail processed asynchronously) in normal cases,
 // but waits/blocks under hook mode to make sure mail has been sent.
 func Send(msg *Message) {
+	if !conf.Email.Enabled {
+		return
+	}
+
 	mailQueue <- msg
 
 	if conf.HookMode {
